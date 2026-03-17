@@ -202,7 +202,6 @@ class ScraperCore:
             if await next_btn.count() > 0 and await next_btn.is_visible():
                 print(f"Kensington: Weiter zu Seite {current_page+1}...")
                 await next_btn.click(); await page.wait_for_timeout(5000); current_page += 1
-            else: break
         return all_listings
 
     async def parse_homebase(self, page: Page):
@@ -240,9 +239,13 @@ class ScraperCore:
                     if await img_el.count() > 0:
                         img = await img_el.evaluate("el => el.src || el.dataset.src || el.dataset.lazySrc || ''")
                     
-                    link_el = it.locator("h5.title a, a[href*='/objekte/'], a[href*='/expose/']").first
+                    # FIX: Aggressiverer Link-Grabber
+                    link_el = it.locator("a").first
                     link = await link_el.get_attribute("href") if await link_el.count() > 0 else ""
                     if link and not link.startswith("http"): link = "https://www.homebase-immobilienberatung.de" + link
+                    
+                    # FIX: Fallback, falls kein Link da ist, nimm Hauptseite
+                    if not link: link = "https://www.homebase-immobilienberatung.de/"
 
                     all_listings.append(PropertyListing(
                         name=name.strip(), price=price.strip(), location=location.strip(),
@@ -261,6 +264,7 @@ class ScraperCore:
         return all_listings
 
     async def parse_teampower(self, page: Page):
+        await page.wait_for_timeout(4000) # FIX: Warten auf JavaScript
         try:
             btn = await page.query_selector(".geowerft-switcher-left")
             if btn: await btn.click(); await asyncio.sleep(2)
@@ -272,7 +276,10 @@ class ScraperCore:
                 name = await (await it.query_selector(".object-titel")).inner_text()
                 price = await (await it.query_selector(".object-pricing")).inner_text()
                 location = await (await it.query_selector(".city")).inner_text()
-                link = await (await it.query_selector(".geowerft-list-anker")).get_attribute("href")
+                
+                link_el = await it.query_selector("a")
+                link = await link_el.get_attribute("href") if link_el else "https://teampower-immobilien.de/immobilien/"
+                
                 img_el = await it.query_selector(".mw-geowerft-list-single-prop-img")
                 img = await img_el.evaluate("el => el.src || ''") if img_el else ""
                 
@@ -284,6 +291,7 @@ class ScraperCore:
         return listings
 
     async def parse_immowerk(self, page: Page):
+        await page.wait_for_timeout(3000)
         items_data = await page.evaluate("""() => {
             const h2s = Array.from(document.querySelectorAll('h2'));
             const successHeader = h2s.find(h => h.innerText.includes('EINE AUSWAHL UNSERER VERKAUFSERFOLGE'));
@@ -306,6 +314,7 @@ class ScraperCore:
         return listings
 
     async def parse_robertcspies(self, page: Page):
+        await page.wait_for_timeout(3000)
         items = await page.query_selector_all(".exposeList__item")
         listings = []
         for it in items:
@@ -326,6 +335,7 @@ class ScraperCore:
         return listings
 
     async def parse_pump(self, page: Page):
+        await page.wait_for_timeout(4000) # FIX: Warten auf JavaScript
         items = await page.query_selector_all(".obj-list-object")
         listings = []
         for it in items:
@@ -405,9 +415,8 @@ def create_export_buffer():
         
         if it.image_url:
             try:
-                print(f"Versuche Bild-Download: {it.image_url}")
                 headers = {
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+                    "User-Agent": "Mozilla/5.0",
                     "Referer": "https://kensington-international.com/",
                     "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8"
                 }
@@ -422,7 +431,7 @@ def create_export_buffer():
                 pic_p.add_run().add_picture(buf, width=Cm(5))
                 set_compact(pic_p)
             except Exception as e:
-                table.rows[0].cells[0].text = f"Bild n.v.\n({str(e)[:20]})"
+                table.rows[0].cells[0].text = "Bild n.v."
         else:
             table.rows[0].cells[0].text = "Kein Bild"
         
@@ -434,11 +443,9 @@ def create_export_buffer():
         p_link = c2.add_paragraph("Link: "); r_link = p_link.add_run(it.link); r_link.underline = True; r_link.font.size = Pt(9); set_compact(p_link)
         doc.add_paragraph("-" * 85)
 
-    # Speichern im RAM-Buffer
     file_stream = BytesIO()
     doc.save(file_stream)
     file_stream.seek(0)
-    
     save_to_history(st.session_state.cart)
     return file_stream.getvalue()
 
@@ -451,14 +458,12 @@ def toggle_item(link, it):
 # --------------------------------------------------
 st.set_page_config(page_title="Immo Scraper 2026", layout="wide")
 
-# CLOUD FIX: Playwright Browser Installation
 if "playwright_installed" not in st.session_state:
     try:
-        # Check if already installed
         subprocess.run(["playwright", "install", "chromium"], check=True, capture_output=True)
         st.session_state.playwright_installed = True
     except:
-        with st.spinner("Initialisiere Browser-Umgebung (Playwright install)..."):
+        with st.spinner("Initialisiere Browser-Umgebung..."):
             subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"])
             st.session_state.playwright_installed = True
 
@@ -471,7 +476,6 @@ history = load_history()
 st.sidebar.title("🛒 Warenkorb")
 st.sidebar.write(f"Ausgewählt: **{len(st.session_state.cart)}**")
 
-# CLOUD FIX: Zwei-Schritt-Export zur Vermeidung von Memory Leaks
 if st.session_state.cart:
     if st.sidebar.button("📄 Word Export generieren", use_container_width=True):
         with st.spinner("Erstelle Word-Dokument..."):
@@ -494,7 +498,6 @@ if st.sidebar.button("🗑️ Warenkorb leeren", use_container_width=True):
 
 st.sidebar.divider()
 st.sidebar.title("⚙️ Einstellungen")
-# CLOUD FIX: Standardmäßig True (Headless), da Cloud-Server keine Bildschirme haben
 headless_mode = st.sidebar.checkbox("Headless Modus", value=True)
 all_srcs = ["Homebase", "Kensington", "TeamPower", "Immowerk", "Robert C. Spies", "Pump Immobilien"]
 sel_srcs = st.sidebar.multiselect("Quellen", options=all_srcs, default=all_srcs)
@@ -507,19 +510,25 @@ with col_b: st.write("##"); s_btn = st.button("🚀 SUCHE STARTEN", use_containe
 if s_btn:
     core = ScraperCore(); st.session_state.listings = []
     with st.spinner("Scraping läuft..."):
-        if t_url: results = asyncio.run(core.scrape_site(t_url, headless=headless_mode))
-        else: results = asyncio.run(core.scrape_all(selected_sources=sel_srcs, headless=headless_mode))
+        if t_url: 
+            results = asyncio.run(core.scrape_site(t_url, headless=headless_mode))
+            counts = {"URL": len(results)} # FIX für Metriken bei Einzel-URL
+        else: 
+            results = asyncio.run(core.scrape_all(selected_sources=sel_srcs, headless=headless_mode))
+            # FIX: Zuerst ALLE gewählten Quellen auf 0 setzen, damit auch 0 angezeigt wird!
+            counts = {src: 0 for src in sel_srcs} 
+            for r in results: counts[r.source] = counts.get(r.source, 0) + 1
+            
         st.session_state.listings = results
-        counts = {}
-        for r in results: counts[r.source] = counts.get(r.source, 0) + 1
+        
         if counts:
             cols = st.columns(len(counts))
             for idx, (src, count) in enumerate(counts.items()): cols[idx].metric(src, f"{count} Objekte")
     asyncio.run(core.close_browser())
 
 for i, item in enumerate(st.session_state.listings):
-    link = item.link
-    if not link: continue
+    link = item.link or "https://kein-link-gefunden.de" # FIX: Fallback, falls None
+    # FIX: Die böse Zeile "if not link: continue" wurde hier entfernt, damit alles angezeigt wird!
     with st.container(border=True):
         c1, c2 = st.columns([1, 4])
         with c1:
