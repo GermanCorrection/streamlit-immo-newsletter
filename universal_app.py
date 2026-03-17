@@ -1,5 +1,7 @@
 import streamlit as st
 import asyncio
+import nest_asyncio
+nest_asyncio.apply()
 import sys
 import os
 import json
@@ -448,6 +450,18 @@ def toggle_item(link, it):
 # STREAMLIT UI
 # --------------------------------------------------
 st.set_page_config(page_title="Immo Scraper 2026", layout="wide")
+
+# CLOUD FIX: Playwright Browser Installation
+if "playwright_installed" not in st.session_state:
+    try:
+        # Check if already installed
+        subprocess.run(["playwright", "install", "chromium"], check=True, capture_output=True)
+        st.session_state.playwright_installed = True
+    except:
+        with st.spinner("Initialisiere Browser-Umgebung (Playwright install)..."):
+            subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"])
+            st.session_state.playwright_installed = True
+
 if "listings" not in st.session_state: st.session_state.listings = []
 if "cart" not in st.session_state: st.session_state.cart = {}
 if "export_file" not in st.session_state: st.session_state.export_file = None

@@ -4,3 +4,4 @@ pydantic
 playwright
 python-docx
 Pillow
+nest_asyncio
